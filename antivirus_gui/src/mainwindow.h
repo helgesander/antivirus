@@ -12,7 +12,7 @@
 #include <QCloseEvent>
 
 #define APP_ICON ":/images/resources/antivirus.ico"
-#define SERVICE_NAME "NotepadOpener" // поменять!
+#define SERVICE_NAME "antivirus" // поменять!
 
 enum ServiceStatus {
     SERVICE_NOT_RUNNING,
@@ -50,6 +50,7 @@ private:
     Ui::MainWindow *ui;
     QMenu *trayIconMenu;
     QAction *quitAction;
+    QAction *showAction;
     QSystemTrayIcon *trayIcon;
 };
 #endif // MAINWINDOW_H

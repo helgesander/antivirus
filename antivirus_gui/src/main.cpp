@@ -34,7 +34,7 @@ int checkWorkingService(LPCSTR name_of_service) {
 }
 
 void startAntivirusService() {
-    QString command = "sc start NotepadOpener"; // не будет работать без прав админа???
+    QString command = "sc start " + QString::fromStdString(SERVICE_NAME); // не будет работать без прав админа???
     QProcess process;
     process.setProgram("cmd");
     process.setArguments({"/c", command});
@@ -54,21 +54,8 @@ void startAntivirusService() {
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
-    switch(checkWorkingService("NotepadOpener")) {
-    case SCM_ERROR:
-        QMessageBox::critical(nullptr, "Error", "Failed to connect to Service Control Manager");
-        QApplication::quit();
-    case SERVICE_ERROR_OPEN:
-        QMessageBox::critical(nullptr, "Error", "Failed to open antivirus service");
-        QApplication::quit();
-    case SERVICE_ERROR_GET_STATUS:
-        QMessageBox::critical(nullptr, "Error", "Failed to query service status");
-        QApplication::quit();
-    case SERVICE_NOT_RUNNING:
-        startAntivirusService();
-    }
     MainWindow w;
-    w.setWindowTitle("Касперский v.2");
+    w.setWindowTitle("Касперский v2.0");
     QIcon icon(APP_ICON);
     w.setWindowIcon(icon);
     return a.exec();

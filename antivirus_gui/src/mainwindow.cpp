@@ -14,7 +14,7 @@ MainWindow::~MainWindow()
 {
     delete ui;
 }
-/* Отвечает за переопределение крестика (он не завершает все приложение, иконка в системном трее остается)*/
+
 void MainWindow::closeEvent(QCloseEvent *event) {
     if (this->isVisible()) {
         event->ignore();
@@ -28,7 +28,7 @@ void MainWindow::showTrayIcon() {
     if (trayImage.isNull()) qDebug() << "Не удалось загрузить иконку";
     trayIcon -> setIcon(trayImage);
     trayIcon -> setContextMenu(trayIconMenu);
-    connect(trayIcon, SIGNAL(activated(QSystemTrayIcon::ActivationReason)), this, SLOT(trayIconActivated(QSystemTrayIcon::ActivationReason)));
+    connect(trayIcon, &QSystemTrayIcon::activated, this, &MainWindow::trayIconActivated);
     trayIcon -> show();
 }
 
@@ -37,6 +37,7 @@ void MainWindow::trayIconActivated(QSystemTrayIcon::ActivationReason reason)
     switch (reason)
     {
     case QSystemTrayIcon::Trigger:
+        break;        // чет может добавлю (это один тык)
     case QSystemTrayIcon::DoubleClick:
         this->show();
         break;
@@ -48,14 +49,16 @@ void MainWindow::trayIconActivated(QSystemTrayIcon::ActivationReason reason)
 void MainWindow::setTrayIconActions()
 {
     quitAction = new QAction("Выход", this);
-    connect (quitAction, SIGNAL(triggered()), qApp, SLOT(quit()));
+    showAction = new QAction("Показать Касперский v2.0", this);
+    connect (quitAction, &QAction::triggered, qApp, &QApplication::quit);
+    connect(showAction, &QAction::triggered, qApp, [this]() { // спустя три жутких костыля...
+        this->show();
+    });
     trayIconMenu = new QMenu(this);
-    trayIconMenu -> addAction (quitAction);
+    trayIconMenu->addAction(showAction);
+    trayIconMenu->addAction (quitAction);
 }
 
-/*
-* Отвечает за поведение приложения после действия "Свернуть" (если приложение сворачивается, то программа прячется)
-*/
 void MainWindow::changeEvent(QEvent *event)
 {
     QMainWindow::changeEvent(event);
