@@ -1,5 +1,12 @@
 <RCC>
     <qresource prefix="/images">
         <file>resources/antivirus.ico</file>
+        <file>resources/settings.png</file>
+    </qresource>
+    <qresource prefix="/qss">
+        <file>resources/style.css</file>
+    </qresource>
+    <qresource prefix="/movie">
+        <file>resources/meow.gif</file>
     </qresource>
 </RCC>

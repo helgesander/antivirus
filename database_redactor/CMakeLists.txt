@@ -28,8 +28,9 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
         ${APP_ICON_RESOURCE_WINDOWS}
-        src/signaturestable.h src/signaturestable.cpp
+
         project.pro
+
     )
 target_sources(database_redactor PRIVATE ${ICON_RESOURCE})
 target_compile_definitions(database_redactor PRIVATE QT_RCC compiler)

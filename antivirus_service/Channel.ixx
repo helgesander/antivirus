@@ -4,36 +4,64 @@
 
 module ;
 
-#include <Windows.h>
 #include <string>
-#include "exceptions.h"
+#include <locale>
+#include <codecvt>
+#include "antivirus_service.h"
 
 import Logger;
 
 export module Channel;
 
+export enum MESSAGES {
+	EXIT, 
+	SCAN_FILE,
+	SCAN_FOLDER,
+	MONITORING_DIRECTORY,
+	SCHEDULED_SCAN,
+	DELETE_MALWARE_FILES,
+	QUARANTINE
+};
+
 export class Channel {
 public:
-	Channel(const std::wstring& name);
+	Channel();
 	~Channel() noexcept;
-	Channel GetInstance();
+	void Create(HANDLE);
+	bool Read(uint8_t*, uint64_t, DWORD&);
+	bool Write(uint8_t*, uint64_t);
+	HANDLE GetHandlePipe();
 private:
 	HANDLE hPipe;
 	std::wstring pipeName;
+	std::wstring pipeSddl;
 };
 
 
-Channel::Channel(const std::wstring& name) : pipeName(name) {
+HANDLE Channel::GetHandlePipe() {
+	return hPipe;
+}
+
+void Channel::Create(HANDLE userToken) {
+	pipeSddl = std::format(L"O:SYG:SYD:(A;OICI;GA;;;{})",
+		GetUserSid(userToken));
+	SECURITY_ATTRIBUTES npsa = GetSecurityAttributes(pipeSddl);
+	//pipeName = std::format(L"\\\\.\\pipe\\{}", GetUserSid(userToken));
+	pipeName = L"\\\\.\\pipe\\meow";
+	std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+
+	std::string str = converter.to_bytes(pipeName);
+	GlobalLogger.write(std::format("Create new pipe with name {}", str), INFO);
 	hPipe = CreateNamedPipeW(
-		name.c_str(),
+		pipeName.c_str(),
 		PIPE_ACCESS_DUPLEX,
-		PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+		PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | 
+		PIPE_WAIT,
 		1,
 		512,
 		512,
 		0,
-		NULL
-	);
+		&npsa);
 	try {
 		if (hPipe == INVALID_HANDLE_VALUE) {
 			throw ServiceException("Failed to create named pipe. Error code: " + GetLastError());
@@ -43,6 +71,8 @@ Channel::Channel(const std::wstring& name) : pipeName(name) {
 		GlobalLogger.write(e.what(), ERR);
 	}
 }
+
+Channel::Channel() {};
 
 Channel::~Channel() noexcept {
 	if (!FlushFileBuffers(hPipe)) {
@@ -56,4 +86,31 @@ Channel::~Channel() noexcept {
 	hPipe = INVALID_HANDLE_VALUE;
 }
 
-export Channel GlobalChannel(L"\\\\.\\pipe\\antivirus_channel");
+bool Channel::Read(uint8_t* data, uint64_t length, DWORD& bytesRead) {
+	bytesRead = 0;
+	BOOL fSuccess = ReadFile(
+		hPipe,
+		data,
+		length,
+		&bytesRead,
+		NULL
+	);
+	if (!fSuccess || bytesRead == 0)
+		return false;
+	return true;
+}
+
+bool Channel::Write(uint8_t* data, uint64_t length) {
+	DWORD cbWritten = 0;
+	BOOL fSuccess = WriteFile(
+		hPipe,
+		data,
+		length,
+		&cbWritten,
+		NULL
+	);
+	if (!fSuccess || length != cbWritten)
+		return false;
+	return true;
+}
+

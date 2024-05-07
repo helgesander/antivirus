@@ -94,7 +94,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="antivirus_service.cpp" />
+    <ClCompile Include="Channel.ixx" />
     <ClCompile Include="Logger.ixx" />
+    <ClCompile Include="Scanner.ixx" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="antivirus_service.h" />

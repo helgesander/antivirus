@@ -3,15 +3,22 @@
 //
 
 #include "antivirus_service.h"
-#include <WTSApi32.h>
 
 import Channel;
 import Logger;
 
 
+void WriteLog(const std::string& msg) {
+    std::ofstream logfile("logfile.log");
+    logfile << msg << std::endl;
+    logfile.flush();
+}
+
 int _tmain(int argc, TCHAR* argv[])
 {
+
     GlobalLogger.write("Main: Entry", INFO);
+    WriteLog("Main: Entry");
 
     SERVICE_TABLE_ENTRY ServiceTable[] =
     {
@@ -20,7 +27,7 @@ int _tmain(int argc, TCHAR* argv[])
     };
     try {
         if (StartServiceCtrlDispatcher(ServiceTable) == FALSE)
-            throw ServiceException("Main: StartServiceCtrlDispatcher returned error");
+            throw ServiceException(std::format("Main: StartServiceCtrlDispatcher returned error: {}", GetLastError()));
     }
     catch (ServiceException const& e) {
         GlobalLogger.write(e.what(), ERR);
@@ -31,10 +38,79 @@ int _tmain(int argc, TCHAR* argv[])
     return OK;
 }
 
+bool Write(HANDLE handle, uint8_t* data, uint64_t length) {
+    DWORD cbWritten = 0;
+    BOOL fSuccess = WriteFile(
+        handle,
+        data,
+        length,
+        &cbWritten,
+        NULL
+    );
+    if (!fSuccess || length != cbWritten)
+        return false;
+    return true;
+}
+
+bool Read(HANDLE handle, uint8_t* data, uint64_t length, DWORD& bytesRead) {
+    bytesRead = 0;
+    BOOL fSuccess = ReadFile(
+        handle,
+        data,
+        length,
+        &bytesRead,
+        NULL
+    );
+    if (!fSuccess || bytesRead == 0)
+        return false;
+    return true;
+}
+
+std::wstring GetUserSid(HANDLE userToken) {
+    std::wstring userSid;
+    DWORD err = 0;
+    LPVOID pvInfo = NULL;
+    DWORD cbSize = 0;
+    if (!GetTokenInformation(userToken, TokenUser, NULL, 0, &cbSize)) {
+        err = GetLastError();
+        if (ERROR_INSUFFICIENT_BUFFER == err) {
+            err = 0;
+            pvInfo = LocalAlloc(LPTR, cbSize);
+            if (!pvInfo)
+                err = ERROR_OUTOFMEMORY;
+            else if (!GetTokenInformation(userToken, TokenUser, pvInfo, cbSize, &cbSize))
+                err = GetLastError();
+            else {
+                err = 0;
+                const TOKEN_USER* pUser = (const TOKEN_USER*)pvInfo;
+                LPWSTR userSidBuf;
+                ConvertSidToStringSidW(pUser->User.Sid, &userSidBuf);
+                userSid.assign(userSidBuf);
+                LocalFree(userSidBuf);
+            }
+        }
+    }
+    return userSid;
+}
+
+
+SECURITY_ATTRIBUTES GetSecurityAttributes(const std::wstring& sddl) {
+    SECURITY_ATTRIBUTES securityAttributes{};
+    securityAttributes.nLength = sizeof(SECURITY_ATTRIBUTES);
+    securityAttributes.bInheritHandle = TRUE;
+
+    PSECURITY_DESCRIPTOR psd = nullptr;
+
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &psd, nullptr))
+        securityAttributes.lpSecurityDescriptor = psd;
+    else
+        GlobalLogger.write("SDDL parse error", ERR);
+    return securityAttributes;
+}
 
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
 {
-    GlobalLogger.write("ServiceMain: Entry", INFO); // инициализируем логгер
+    GlobalLogger.write("ServiceMain: Entry", INFO);
     try {
         g_StatusHandle = RegisterServiceCtrlHandler(SERVICE_NAME, reinterpret_cast<LPHANDLER_FUNCTION>(ServiceCtrlHandler));
         if (g_StatusHandle == NULL)
@@ -45,15 +121,12 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
         GlobalLogger.write("ServiceMain: Exit", INFO);
         return; // TODO: add return code
     }
-
-    // Tell the service controller we are starting
+    
     ZeroMemory(&g_ServiceStatus, sizeof(g_ServiceStatus));
     g_ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_SHUTDOWN || SERVICE_ACCEPT_STOP || SERVICE_ACCEPT_SESSIONCHANGE;
-    g_ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
-    g_ServiceStatus.dwWin32ExitCode = 0;
-    g_ServiceStatus.dwServiceSpecificExitCode = 0;
-    g_ServiceStatus.dwCheckPoint = 0;
+    g_ServiceStatus.dwCurrentState = SERVICE_RUNNING;
+
     try {
         if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
             throw ServiceException("ServiceMain: SetServiceStatus returned error");
@@ -62,6 +135,8 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
         GlobalLogger.write(e.what(), ERR);
     }
 
+    SECURITY_ATTRIBUTES jsa = GetSecurityAttributes(L"O:SYG:SYG");
+
     PWTS_SESSION_INFO wtsSessions = NULL;
     DWORD sessionCount = 0;
     if (!WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &wtsSessions, &sessionCount)) {
@@ -69,83 +144,11 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
     }
     else
     {
-        // ПОШЛИ ЖЕСТКИЕ КОСТЫЛИ
-        GlobalLogger.write(&"ServiceMain: I think he can do it, sessionCount = "[sessionCount], INFO);
-
         for (DWORD i = 0; i < sessionCount; ++i)
         {
-            HANDLE userToken;
-            if (WTSQueryUserToken(wtsSessions[i].SessionId, &userToken))
-            {
-                PROCESS_INFORMATION pi = {};
-                STARTUPINFO si = {};
-                WCHAR path[] = GUI_PATH_L;
-                if (!CreateProcessAsUser(userToken, NULL, path, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
-                    GlobalLogger.write(&"ServiceMain: Troubles with CreateProcessAsUser"[GetLastError()], ERR);
-                else
-                    GlobalLogger.write("ServiceMain: Gui is running", INFO);
-                CloseHandle(userToken);
-            }
-            else
-                GlobalLogger.write(&"ServiceMain: Troubles with WTSQueryUserToken"[GetLastError()], ERR);
-        }
-        WTSFreeMemory(wtsSessions);
-    }
-
-    GlobalLogger.write("ServiceMain: Nadeus eto rabotaet...", INFO);
-
-    g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    if (g_ServiceStopEvent == NULL)
-    {
-        try {
-            GlobalLogger.write("CreateEvent returned error", ERR);
-
-            g_ServiceStatus.dwControlsAccepted = 0;
-            g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
-            g_ServiceStatus.dwWin32ExitCode = GetLastError();
-            g_ServiceStatus.dwCheckPoint = 1;
-
-            if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
-                throw ServiceException("SetServiceStatus returned error");
-        }
-        catch (ServiceException const& e) {
-            GlobalLogger.write("ServiceMain: Exit", INFO);
+            StartProcessInSession(wtsSessions[i].SessionId);
         }
     }
-
-    g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
-    g_ServiceStatus.dwCurrentState = SERVICE_RUNNING;
-    g_ServiceStatus.dwWin32ExitCode = 0;
-    g_ServiceStatus.dwCheckPoint = 0;
-
-    if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
-    {
-        GlobalLogger.write("ServiceMain: SetServiceStatus returned error", ERR);
-    }
-
-    HANDLE hThread = CreateThread(NULL, 0, ServiceWorkerThread, NULL, 0, NULL);
-
-    GlobalLogger.write("ServiceMain: Waiting for Worker Thread to complete", INFO);
-
-    WaitForSingleObject(hThread, INFINITE);
-
-    GlobalLogger.write("ServiceMain: Worker Thread Stop Event signaled", INFO);
-
-
-    /*
-     * Perform any cleanup tasks
-     */
-    GlobalLogger.write("ServiceMain: Performing Cleanup Operations", ERR);
-
-    CloseHandle(g_ServiceStopEvent);
-
-    g_ServiceStatus.dwControlsAccepted = 0;
-    g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
-    g_ServiceStatus.dwWin32ExitCode = 0;
-    g_ServiceStatus.dwCheckPoint = 3;
-
-    if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
-        GlobalLogger.write("ServiceMain: ServiceStatus returned error", ERR);
 }
 
 
@@ -157,8 +160,8 @@ VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEvent
     case SERVICE_CONTROL_STOP:
 
         GlobalLogger.write("ServiceCtrlHandler: SERVICE_CONTROL_STOP Request", ERR);
-        if (g_ServiceStatus.dwCurrentState != SERVICE_RUNNING)
-            break;
+        g_ServiceStatus.dwCurrentState == SERVICE_STOPPED;
+        break;
 
         /*
          * Perform tasks necessary to stop the service here
@@ -192,32 +195,78 @@ VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEvent
     GlobalLogger.write("ServiceCtrlHandler: Exit", INFO);
 }
 
-
-DWORD WINAPI ServiceWorkerThread(LPVOID lpParam)
-{
-    GlobalLogger.write("ServiceWorkerThread: Entry", INFO);
-
-    while (WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0)
-    {
-        // пока ничего...
-    }
-
-    GlobalLogger.write("ServiceWorkerThread: Exit", ERR);
-
-    return ERROR_SUCCESS;
-}
-
 void StartProcessInSession(DWORD sessionId) {
-    GlobalLogger.write("Entry to StartProcessInSession", INFO);
-    HANDLE hUserToken = NULL;
-    if (!WTSQueryUserToken(sessionId, &hUserToken)) {
-        std::string logMessage = "Failed to get user token for session " + sessionId;
-        GlobalLogger.write(logMessage, ERR);
-        return;
-    }
-    LPCWSTR lpApplicationName = GUI_PATH_L;
-    if (!CreateProcessAsUser(hUserToken, lpApplicationName, NULL, NULL, NULL, FALSE, CREATE_UNICODE_ENVIRONMENT, NULL, NULL, NULL, NULL)) {
-        GlobalLogger.write("Failed to create process in session " + sessionId, ERR);
-    }
-    CloseHandle(hUserToken);
+    std::thread clientThread([sessionId]() {
+        GlobalLogger.write(std::format("StartUIProcessInSession sessionId = {}", sessionId), INFO);
+        HANDLE hUserToken = NULL;
+        if (WTSQueryUserToken(sessionId, &hUserToken)) {
+            WCHAR commandLine[] = NOTEPAD_PATH;
+            std::wstring processSddl = std::format(L"O:SYG:SYD:(D;OICI;0x{:08X};;;WD)(A;OICI;0x{:08X};;;WD)",
+                PROCESS_TERMINATE, PROCESS_ALL_ACCESS);
+            std::wstring threadSddl = std::format(L"O:SYG:SYD:(D;OICI;0x{:08X};;;WD)(A;OICI;0x{:08X};;;WD)",
+                THREAD_TERMINATE, THREAD_ALL_ACCESS);
+
+            PROCESS_INFORMATION pi{};
+            STARTUPINFO si{};
+
+            SECURITY_ATTRIBUTES psa = GetSecurityAttributes(processSddl);
+            SECURITY_ATTRIBUTES tsa = GetSecurityAttributes(threadSddl);
+            GlobalLogger.write(std::format("Create pipe for sessionId = {}", sessionId), INFO);
+            if (psa.lpSecurityDescriptor != nullptr && 
+                tsa.lpSecurityDescriptor != nullptr) {
+                Channel ch;
+                ch.Create(hUserToken);
+                GlobalLogger.write(std::format("Start UI process for sessionId = {}", sessionId), INFO);
+                if (CreateProcessAsUserW(
+                    hUserToken,
+                    NULL,
+                    commandLine,
+                    &psa,
+                    &tsa,
+                    FALSE,
+                    0,
+                    NULL,
+                    NULL,
+                    &si, &pi))
+                {
+                    GlobalLogger.write(std::format("Process created for sessionId = {}", sessionId), INFO);
+                    ULONG clientProcessId;
+                    BOOL clientIdentified;
+                    do {
+                        BOOL fConnected = ConnectNamedPipe(ch.GetHandlePipe(), NULL) ?
+                            TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+                        clientIdentified = GetNamedPipeClientProcessId(ch.GetHandlePipe(), &clientProcessId);
+                        if (clientIdentified) {
+                            if (clientProcessId == pi.dwProcessId) break;
+                            else DisconnectNamedPipe(ch.GetHandlePipe());
+                        }
+                    } while (true);
+
+                    uint8_t buf[512];
+                    DWORD bytesRead = 0;
+                    while (ch.Read(buf, 512, bytesRead)) {
+                        ImpersonateNamedPipeClient(ch.GetHandlePipe());
+                        // TODO: чето делаем
+                        RevertToSelf();
+                        ch.Write(buf, bytesRead);
+                    }
+                    // 
+                    CloseHandle(pi.hThread);
+                    CloseHandle(pi.hProcess);
+                }
+                else GlobalLogger.write(std::format("Can\'t parse security descriptor for sessionId = {}", sessionId), ERR);
+
+                auto sd = tsa.lpSecurityDescriptor;
+                tsa.lpSecurityDescriptor = nullptr;
+                LocalFree(sd);
+
+                sd = psa.lpSecurityDescriptor;
+                psa.lpSecurityDescriptor = nullptr;
+                LocalFree(sd);
+                }
+
+        }
+        CloseHandle(hUserToken);
+    });
+    clientThread.detach();
 }

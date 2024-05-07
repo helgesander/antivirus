@@ -19,6 +19,8 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Logger.ixx" />
+    <ClCompile Include="Channel.ixx" />
+    <ClCompile Include="Scanner.ixx" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="antivirus_service.h">

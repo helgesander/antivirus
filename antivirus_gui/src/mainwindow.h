@@ -20,7 +20,7 @@ enum ServiceStatus {
     SERVICE_ERROR_OPEN,
     SERVICE_ERROR_GET_STATUS,
     SCM_ERROR
-};
+}; // to be continued...
 
 int checkWorkingService(LPCSTR name_of_service);
 void log(std::string);
@@ -46,11 +46,25 @@ private slots:
     void closeEvent(QCloseEvent *event);
     void setTrayIconActions();
     void showTrayIcon();
+    void on_scanFileMenuButton_clicked();
+
+    void on_scanFolderMenuButton_clicked();
+
+    void on_directoryMonitoringMenuButton_clicked();
+
+    void on_scheduleScanMenuButton_clicked();
+
+    void on_deleteMaliciousFilesMenuButton_clicked();
+
+    void on_quarantineMenuButton_clicked();
+
 private:
     Ui::MainWindow *ui;
     QMenu *trayIconMenu;
     QAction *quitAction;
     QAction *showAction;
     QSystemTrayIcon *trayIcon;
+
+    void hideVisibleWidgets(const QString &objectNameToKeepVisible);
 };
 #endif // MAINWINDOW_H

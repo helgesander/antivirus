@@ -12,3 +12,13 @@ App::~App()
 {
     delete ui;
 }
+
+void App::on_buttonBox_accepted()
+{
+    ui->CreateDatabaseWidget->hide();
+}
+
+
+
+
+

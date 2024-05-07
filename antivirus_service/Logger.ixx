@@ -5,13 +5,16 @@
 module;
 
 #include <Windows.h>
-#include "antivirus_service.h"
+#include <winbase.h>
+
+#define LOGFILE "C:\antivirus.log"
 
 export module Logger;
 
 import <fstream>;
 import <string>;
 import <map>;
+import <format>;
 
 export enum LOGTYPE {
     INFO,
@@ -22,7 +25,7 @@ export enum LOGTYPE {
 
 export class Logger {
 public:
-    explicit Logger(const std::string& path); // конструкто будет вызываться явно
+    explicit Logger(const std::string& path); // конструктор будет вызываться явно
     ~Logger() noexcept ;
     void write(const std::string& msg, LOGTYPE type);
 private:
@@ -32,7 +35,10 @@ private:
     std::string GetEnumName(LOGTYPE logtype);
 };
 
-Logger::Logger(const std::string& path) : logfile(path) {
+Logger::Logger(const std::string& path) : logfile(path, std::ios_base::app) {
+    if (!logfile.is_open()) {
+        throw std::runtime_error("Failed to open log file");
+    }
     logtypeNames = {
             { INFO, "INFO" },
             { WARNING, "WARNING" },
@@ -47,7 +53,11 @@ Logger::~Logger() noexcept {
 };
 
 void Logger::write(const std::string& msg, LOGTYPE type) {
-    logfile << "[" << GetEnumName(type) << "] " << msg << std::endl;
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    std::string data = std::format("{}.{}.{} {}:{}:{}", st.wDay, st.wMonth, st.wYear, st.wHour, st.wMinute, st.wSecond);
+    logfile << std::format("[{}] [{}] {}", GetEnumName(type), data, msg) << std::endl;
+    logfile.flush();
 }
 
 std::string Logger::GetEnumName(LOGTYPE logtype)

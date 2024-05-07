@@ -1,6 +1,13 @@
 #include "mainwindow.h"
+#include <QFile>
 
 
+void loadStyle() {
+    QFile styleF(":/qss/resources/style.css");
+    styleF.open(QFile::ReadOnly);
+    QString qssStr = styleF.readAll();
+    qApp->setStyleSheet(qssStr);
+}
 
 int checkWorkingService(LPCSTR name_of_service) {
     SC_HANDLE scm = OpenSCManager(nullptr, nullptr, SC_MANAGER_CONNECT);
@@ -54,6 +61,7 @@ void startAntivirusService() {
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
+    loadStyle();
     MainWindow w;
     w.setWindowTitle("Касперский v2.0");
     QIcon icon(APP_ICON);

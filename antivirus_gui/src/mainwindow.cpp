@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "src/ui_mainwindow.h"
 
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -8,6 +9,26 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     this -> setTrayIconActions();
     this -> showTrayIcon();
+    // костыли
+    ui->scanFileWidget->setHidden(true);
+    ui->scanFolderWidget->setHidden(true);
+    ui->meowLabel->setHidden(true);
+}
+
+void MainWindow::hideVisibleWidgets(const QString &objectNameToKeepVisible) {
+    const QObjectList &children = ui->mainWidget->children();
+    for (QObject *child : children)
+    {
+        QWidget *widget = qobject_cast<QWidget*>(child);
+        // qDebug() << widget->objectName();
+        if (widget)
+        {
+            if (widget->isVisible() and widget->objectName() != objectNameToKeepVisible)
+            {
+                widget->hide();
+            }
+        }
+    }
 }
 
 MainWindow::~MainWindow()
@@ -37,7 +58,6 @@ void MainWindow::trayIconActivated(QSystemTrayIcon::ActivationReason reason)
     switch (reason)
     {
     case QSystemTrayIcon::Trigger:
-        break;        // чет может добавлю (это один тык)
     case QSystemTrayIcon::DoubleClick:
         this->show();
         break;
@@ -70,3 +90,47 @@ void MainWindow::changeEvent(QEvent *event)
         }
     }
 }
+
+
+
+void MainWindow::on_scanFileMenuButton_clicked()
+{
+    hideVisibleWidgets("scanFileWidget");
+    ui->scanFileWidget->show();
+}
+
+
+void MainWindow::on_scanFolderMenuButton_clicked()
+{
+    hideVisibleWidgets("scanFolderWidget");
+    ui->scanFolderWidget->show();
+}
+
+
+void MainWindow::on_directoryMonitoringMenuButton_clicked()
+{
+    hideVisibleWidgets("meowLabel");
+    ui->meowLabel->show();
+}
+
+
+void MainWindow::on_scheduleScanMenuButton_clicked()
+{
+    hideVisibleWidgets("meowLabel");
+    ui->meowLabel->show();
+}
+
+
+void MainWindow::on_deleteMaliciousFilesMenuButton_clicked()
+{
+    hideVisibleWidgets("meowLabel");
+    ui->meowLabel->show();
+}
+
+
+void MainWindow::on_quarantineMenuButton_clicked()
+{
+    hideVisibleWidgets("meowLabel");
+    ui->meowLabel->show();
+}
+
