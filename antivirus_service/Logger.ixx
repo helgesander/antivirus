@@ -7,7 +7,7 @@ module;
 #include <Windows.h>
 #include <winbase.h>
 
-#define LOGFILE "C:\antivirus.log"
+#define LOGFILE "antivirus.log"
 
 export module Logger;
 
@@ -35,7 +35,8 @@ private:
     std::string GetEnumName(LOGTYPE logtype);
 };
 
-Logger::Logger(const std::string& path) : logfile(path, std::ios_base::app) {
+Logger::Logger(std::string const& path) {
+    logfile.open(path.c_str(), std::ios_base::app);
     if (!logfile.is_open()) {
         throw std::runtime_error("Failed to open log file");
     }
@@ -45,6 +46,7 @@ Logger::Logger(const std::string& path) : logfile(path, std::ios_base::app) {
             { ERR, "ERROR" },
             { DEBUG, "DEBUG" }
     };
+    write("Logger is working...", INFO);
 }
 Logger::~Logger() noexcept {
     if (logfile.is_open()) {
@@ -55,7 +57,8 @@ Logger::~Logger() noexcept {
 void Logger::write(const std::string& msg, LOGTYPE type) {
     SYSTEMTIME st;
     GetLocalTime(&st);
-    std::string data = std::format("{}.{}.{} {}:{}:{}", st.wDay, st.wMonth, st.wYear, st.wHour, st.wMinute, st.wSecond);
+    std::string temp = GetEnumName(type);
+    std::string data = std::format("{:02d}.{:02d}.{} {:02d}:{:02d}:{:02d}", st.wDay, st.wMonth, st.wYear, st.wHour, st.wMinute, st.wSecond);
     logfile << std::format("[{}] [{}] {}", GetEnumName(type), data, msg) << std::endl;
     logfile.flush();
 }

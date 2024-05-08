@@ -200,7 +200,7 @@ void StartProcessInSession(DWORD sessionId) {
         GlobalLogger.write(std::format("StartUIProcessInSession sessionId = {}", sessionId), INFO);
         HANDLE hUserToken = NULL;
         if (WTSQueryUserToken(sessionId, &hUserToken)) {
-            WCHAR commandLine[] = NOTEPAD_PATH;
+            WCHAR commandLine[] = GUI_PATH_L;
             std::wstring processSddl = std::format(L"O:SYG:SYD:(D;OICI;0x{:08X};;;WD)(A;OICI;0x{:08X};;;WD)",
                 PROCESS_TERMINATE, PROCESS_ALL_ACCESS);
             std::wstring threadSddl = std::format(L"O:SYG:SYD:(D;OICI;0x{:08X};;;WD)(A;OICI;0x{:08X};;;WD)",
@@ -254,7 +254,7 @@ void StartProcessInSession(DWORD sessionId) {
                     CloseHandle(pi.hThread);
                     CloseHandle(pi.hProcess);
                 }
-                else GlobalLogger.write(std::format("Can\'t parse security descriptor for sessionId = {}", sessionId), ERR);
+                else GlobalLogger.write(std::format("Can\'t parse security descriptor for sessionId = {}: {}", sessionId, GetLastError()), ERR);
 
                 auto sd = tsa.lpSecurityDescriptor;
                 tsa.lpSecurityDescriptor = nullptr;
