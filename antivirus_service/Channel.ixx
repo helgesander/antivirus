@@ -16,11 +16,7 @@ export module Channel;
 export enum MESSAGES {
 	EXIT, 
 	SCAN_FILE,
-	SCAN_FOLDER,
-	MONITORING_DIRECTORY,
-	SCHEDULED_SCAN,
-	DELETE_MALWARE_FILES,
-	QUARANTINE
+	SCAN_FOLDER
 };
 
 export class Channel {
@@ -42,12 +38,11 @@ HANDLE Channel::GetHandlePipe() {
 	return hPipe;
 }
 
-void Channel::Create(HANDLE userToken) {
+void Channel::Create(HANDLE userToken, DWORD wtsSession) {
 	pipeSddl = std::format(L"O:SYG:SYD:(A;OICI;GA;;;{})",
-		GetUserSid(userToken));
+		wtsSession);
 	SECURITY_ATTRIBUTES npsa = GetSecurityAttributes(pipeSddl);
-	//pipeName = std::format(L"\\\\.\\pipe\\{}", GetUserSid(userToken));
-	pipeName = L"\\\\.\\pipe\\meow";
+	pipeName = std::format(L"\\\\.\\pipe\\{}", wtsToken);
 	std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
 
 	std::string str = converter.to_bytes(pipeName);

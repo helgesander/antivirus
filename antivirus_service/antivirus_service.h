@@ -23,7 +23,7 @@ static SERVICE_STATUS_HANDLE g_StatusHandle		= NULL;
 static HANDLE                g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv);
-VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEventData, LPVOID lpContent);
+DWORD WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEventData, LPVOID lpContent);
 void StartProcessInSession(DWORD sessionId);
 SECURITY_ATTRIBUTES GetSecurityAttributes(const std::wstring& sddl);
 std::wstring GetUserSid(HANDLE userToken);

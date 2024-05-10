@@ -152,47 +152,34 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
 }
 
 
-VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEventData, LPVOID lpContent)
+DWORD WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEventData, LPVOID lpContent)
 {
     GlobalLogger.write("ServiceCtrlHandler: Entry", ERR);
-
+    DWORD result = ERROR_CALL_NOT_IMPLEMENTED;
     switch (CtrlCode) {
     case SERVICE_CONTROL_STOP:
 
         GlobalLogger.write("ServiceCtrlHandler: SERVICE_CONTROL_STOP Request", ERR);
         g_ServiceStatus.dwCurrentState == SERVICE_STOPPED;
+        result = NO_ERROR;
         break;
-
-        /*
-         * Perform tasks necessary to stop the service here
-         */
-
-        g_ServiceStatus.dwControlsAccepted = 0;
-        g_ServiceStatus.dwCurrentState = SERVICE_STOP_PENDING;
-        g_ServiceStatus.dwWin32ExitCode = 0;
-        g_ServiceStatus.dwCheckPoint = 4;
-
-        if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
-            GlobalLogger.write("ServiceCtrlHandler: SetServiceStatus returned error", ERR);
-
-        // This will signal the worker thread to start shutting down
-        SetEvent(g_ServiceStopEvent);
-
+    case SERVICE_CONTROL_SHUTDOWN:
+        g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
+        result = NO_ERROR;
+        break;
+    case SERVICE_CONTROL_INTERROGATE:
+        result = NO_ERROR;
         break;
     case SERVICE_CONTROL_SESSIONCHANGE:
-    {
         WTSSESSION_NOTIFICATION* sessionNotification = reinterpret_cast<WTSSESSION_NOTIFICATION*>(lpEventData);
-        if (dwEventType == WTS_SESSION_LOGON || dwEventType == WTS_SESSION_CREATE || dwEventType == WTS_REMOTE_CONNECT) {
+        if (dwEventType == WTS_SESSION_LOGON) {
             StartProcessInSession(sessionNotification->dwSessionId);
         }
         break;
     }
 
-    default:
-        break;
-    }
-
     GlobalLogger.write("ServiceCtrlHandler: Exit", INFO);
+    return result;
 }
 
 void StartProcessInSession(DWORD sessionId) {
@@ -218,20 +205,13 @@ void StartProcessInSession(DWORD sessionId) {
                 ch.Create(hUserToken);
                 GlobalLogger.write(std::format("Start UI process for sessionId = {}", sessionId), INFO);
                 if (CreateProcessAsUserW(
-                    hUserToken,
-                    NULL,
-                    commandLine,
-                    &psa,
-                    &tsa,
-                    FALSE,
-                    0,
-                    NULL,
-                    NULL,
-                    &si, &pi))
+                    hUserToken, NULL, commandLine, &psa, &tsa, FALSE,
+                    0, NULL, NULL, &si, &pi))
                 {
                     GlobalLogger.write(std::format("Process created for sessionId = {}", sessionId), INFO);
                     ULONG clientProcessId;
                     BOOL clientIdentified;
+                    // Инициализация канала и подключение к нему
                     do {
                         BOOL fConnected = ConnectNamedPipe(ch.GetHandlePipe(), NULL) ?
                             TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
@@ -243,12 +223,10 @@ void StartProcessInSession(DWORD sessionId) {
                     } while (true);
 
                     uint8_t buf[512];
+                    int signal; // maybe change to 4 
                     DWORD bytesRead = 0;
-                    while (ch.Read(buf, 512, bytesRead)) {
-                        ImpersonateNamedPipeClient(ch.GetHandlePipe());
-                        // TODO: ���� ������
-                        RevertToSelf();
-                        ch.Write(buf, bytesRead);
+                    while (ch.Read(signal, sizeof(int), bytesRead)) {
+                        i
                     }
                     // 
                     CloseHandle(pi.hThread);
