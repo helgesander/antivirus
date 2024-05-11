@@ -8,6 +8,7 @@ module ;
 #include <locale>
 #include <codecvt>
 #include "antivirus_service.h"
+#include <format>
 
 import Logger;
 
@@ -23,7 +24,7 @@ export class Channel {
 public:
 	Channel();
 	~Channel() noexcept;
-	void Create(HANDLE);
+	void Create(HANDLE, DWORD);
 	bool Read(uint8_t*, uint64_t, DWORD&);
 	bool Write(uint8_t*, uint64_t);
 	HANDLE GetHandlePipe();
@@ -38,11 +39,11 @@ HANDLE Channel::GetHandlePipe() {
 	return hPipe;
 }
 
-void Channel::Create(HANDLE userToken, DWORD wtsSession) {
+void Channel::Create(HANDLE userToken, DWORD sessionId) {
 	pipeSddl = std::format(L"O:SYG:SYD:(A;OICI;GA;;;{})",
-		wtsSession);
+		GetUserSid(userToken));
 	SECURITY_ATTRIBUTES npsa = GetSecurityAttributes(pipeSddl);
-	pipeName = std::format(L"\\\\.\\pipe\\{}", wtsToken);
+	pipeName = std::format(L"\\\\.\\pipe\\antivirus_{}", sessionId);
 	std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
 
 	std::string str = converter.to_bytes(pipeName);

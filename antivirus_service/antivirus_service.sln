@@ -5,6 +5,8 @@ VisualStudioVersion = 17.9.34728.123
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "antivirus_service", "SampleService.vcxproj", "{D6E78055-7BC4-4301-BDFC-C4DDA35E959C}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "antivirus_gui_3", "..\antivirus_gui_3\antivirus_gui_3.vcxproj", "{7A20D2B7-1A9D-4FC8-8683-40C3483B6A33}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -21,6 +23,14 @@ Global
 		{D6E78055-7BC4-4301-BDFC-C4DDA35E959C}.Release|Win32.Build.0 = Release|Win32
 		{D6E78055-7BC4-4301-BDFC-C4DDA35E959C}.Release|x64.ActiveCfg = Release|Win32
 		{D6E78055-7BC4-4301-BDFC-C4DDA35E959C}.Release|x64.Build.0 = Release|Win32
+		{7A20D2B7-1A9D-4FC8-8683-40C3483B6A33}.Debug|Win32.ActiveCfg = Debug|Win32
+		{7A20D2B7-1A9D-4FC8-8683-40C3483B6A33}.Debug|Win32.Build.0 = Debug|Win32
+		{7A20D2B7-1A9D-4FC8-8683-40C3483B6A33}.Debug|x64.ActiveCfg = Debug|x64
+		{7A20D2B7-1A9D-4FC8-8683-40C3483B6A33}.Debug|x64.Build.0 = Debug|x64
+		{7A20D2B7-1A9D-4FC8-8683-40C3483B6A33}.Release|Win32.ActiveCfg = Release|Win32
+		{7A20D2B7-1A9D-4FC8-8683-40C3483B6A33}.Release|Win32.Build.0 = Release|Win32
+		{7A20D2B7-1A9D-4FC8-8683-40C3483B6A33}.Release|x64.ActiveCfg = Release|x64
+		{7A20D2B7-1A9D-4FC8-8683-40C3483B6A33}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

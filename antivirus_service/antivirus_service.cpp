@@ -6,19 +6,12 @@
 
 import Channel;
 import Logger;
-
-
-void WriteLog(const std::string& msg) {
-    std::ofstream logfile("logfile.log");
-    logfile << msg << std::endl;
-    logfile.flush();
-}
+import Scanner;
 
 int _tmain(int argc, TCHAR* argv[])
 {
 
     GlobalLogger.write("Main: Entry", INFO);
-    WriteLog("Main: Entry");
 
     SERVICE_TABLE_ENTRY ServiceTable[] =
     {
@@ -36,34 +29,6 @@ int _tmain(int argc, TCHAR* argv[])
 
     GlobalLogger.write("Main: Exit", INFO);
     return OK;
-}
-
-bool Write(HANDLE handle, uint8_t* data, uint64_t length) {
-    DWORD cbWritten = 0;
-    BOOL fSuccess = WriteFile(
-        handle,
-        data,
-        length,
-        &cbWritten,
-        NULL
-    );
-    if (!fSuccess || length != cbWritten)
-        return false;
-    return true;
-}
-
-bool Read(HANDLE handle, uint8_t* data, uint64_t length, DWORD& bytesRead) {
-    bytesRead = 0;
-    BOOL fSuccess = ReadFile(
-        handle,
-        data,
-        length,
-        &bytesRead,
-        NULL
-    );
-    if (!fSuccess || bytesRead == 0)
-        return false;
-    return true;
 }
 
 std::wstring GetUserSid(HANDLE userToken) {
@@ -112,7 +77,8 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
 {
     GlobalLogger.write("ServiceMain: Entry", INFO);
     try {
-        g_StatusHandle = RegisterServiceCtrlHandler(SERVICE_NAME, reinterpret_cast<LPHANDLER_FUNCTION>(ServiceCtrlHandler));
+        // TODO: fix RegisterServiceCtrlHandler(Ex)
+        g_StatusHandle = RegisterServiceCtrlHandlerEx(SERVICE_NAME, reinterpret_cast<LPHANDLER_FUNCTION_EX>(ServiceCtrlHandler), NULL);
         if (g_StatusHandle == NULL)
             throw ServiceException("ServiceMain: RegisterServiceCtrlHandler returned error");
     }
@@ -171,8 +137,8 @@ DWORD WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEven
         result = NO_ERROR;
         break;
     case SERVICE_CONTROL_SESSIONCHANGE:
-        WTSSESSION_NOTIFICATION* sessionNotification = reinterpret_cast<WTSSESSION_NOTIFICATION*>(lpEventData);
         if (dwEventType == WTS_SESSION_LOGON) {
+            WTSSESSION_NOTIFICATION* sessionNotification = reinterpret_cast<WTSSESSION_NOTIFICATION*>(lpEventData);
             StartProcessInSession(sessionNotification->dwSessionId);
         }
         break;
@@ -193,7 +159,6 @@ void StartProcessInSession(DWORD sessionId) {
             std::wstring threadSddl = std::format(L"O:SYG:SYD:(D;OICI;0x{:08X};;;WD)(A;OICI;0x{:08X};;;WD)",
                 THREAD_TERMINATE, THREAD_ALL_ACCESS);
 
-            PROCESS_INFORMATION pi{};
             STARTUPINFO si{};
 
             SECURITY_ATTRIBUTES psa = GetSecurityAttributes(processSddl);
@@ -202,7 +167,7 @@ void StartProcessInSession(DWORD sessionId) {
             if (psa.lpSecurityDescriptor != nullptr && 
                 tsa.lpSecurityDescriptor != nullptr) {
                 Channel ch;
-                ch.Create(hUserToken);
+                ch.Create(hUserToken, sessionId);
                 GlobalLogger.write(std::format("Start UI process for sessionId = {}", sessionId), INFO);
                 if (CreateProcessAsUserW(
                     hUserToken, NULL, commandLine, &psa, &tsa, FALSE,
@@ -223,10 +188,16 @@ void StartProcessInSession(DWORD sessionId) {
                     } while (true);
 
                     uint8_t buf[512];
-                    int signal; // maybe change to 4 
+                    int *signal; // TODO: maybe change to 4 
                     DWORD bytesRead = 0;
-                    while (ch.Read(signal, sizeof(int), bytesRead)) {
-                        i
+                    while (ch.Read(reinterpret_cast<uint8_t*>(signal), sizeof(int), bytesRead)) {
+                        if (*signal == EXIT) break;
+                        else if (*signal == SCAN_FILE) {
+                            // TODO: fix scan 
+                        }
+                        else if (*signal == SCAN_FOLDER) {
+                            // TODO: fix scan   
+                        }
                     }
                     // 
                     CloseHandle(pi.hThread);
