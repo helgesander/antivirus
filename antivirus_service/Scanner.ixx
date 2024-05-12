@@ -24,8 +24,8 @@ export struct Signature {
     int offsetEnd;
 }; // TODO: add hash 
 
-export typedef std::vector<Signature> SignaturesData; // TODO: fix with using
-export typedef std::map<std::string, SignaturesData> ScanFolderData;
+export using SignaturesData = std::vector<Signature>; // TODO: fix with using
+export using ScanFolderData = std::map<std::string, SignaturesData>;
 
 export class Scanner {
 public:

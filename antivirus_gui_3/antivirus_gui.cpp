@@ -1,5 +1,6 @@
 ﻿#include "antivirus_gui.h"
 #include "messages.h"
+#include <string>
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInst, LPSTR args, int ncmdshow) {
 	hInst = hInstance;
@@ -39,9 +40,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
 			SetMainMenuWindowPos(hWnd);
 			break;
 		case CHOOSE_FILE:
+			wchar_t selectedScanFilePath[MAX_PATH];
+			SetOpenFileParams(hWnd, TEXT("All Files\0*.*\0Executable Files\0*.exe\0"), selectedScanFilePath);
+			if (GetOpenFileName(&ofn) == TRUE) 
+				SetWindowText(gui.hSelectedFolderOrFile, selectedScanFilePath);
 			break;
 		case CHOOSE_FOLDER:
 			SelectFolderDialog(hWnd);
+			if (GetOpenFileName(&ofn) == TRUE)
+				SetWindowText(gui.hSelectedFolderOrFile, g_szFolderPath);
+			break;
+		case CHOOSE_WRITE_FILE:
+			wchar_t selectedFilePathToWrite[MAX_PATH];
+			SetOpenFileParams(hWnd, TEXT("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"), selectedFilePathToWrite);
+			//if (GetOpenFileName(&ofn) == TRUE)
+				
 			break;
 		case ID_KASPERSKYV2_40001:
 			ShowWindow(hWnd, SW_SHOW);
@@ -65,8 +78,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
 		break;
 	case WM_CREATE: 
 		InitWindow(hWnd);
+		InitializeConnection(hWnd);
 		break;
 	case WM_DESTROY:
+		CloseHandle(pipe);
 		PostQuitMessage(0);
 		break;
 	case WM_CLOSE: 
@@ -103,6 +118,8 @@ void InitWindow(HWND hwnd) {
 	gui.hCancelButton = CreateWindowW(L"BUTTON", L"Назад", WS_CHILD, 50, 220, 50, 30, hwnd, (HMENU)CANCEL, hInst, nullptr);
 	gui.hChooseFileToScan = CreateWindowW(L"BUTTON", L"...", WS_CHILD, 200, 50, 30, 30, hwnd, (HMENU)CHOOSE_FILE, hInst, nullptr);
 	gui.hChooseFolderToScan = CreateWindowW(L"BUTTON", L"...", WS_CHILD, 200, 50, 30, 30, hwnd, (HMENU)CHOOSE_FOLDER, hInst, nullptr);
+	gui.hSelectedFolderOrFile = CreateWindow(L"STATIC", L"", WS_CHILD, 250, 50, 100, 40, hwnd, NULL, hInst, nullptr);
+	gui.hSelectedFileToWrite = CreateWindow(L"STATIC", L"", WS_CHILD, 250, 50, 100, 40, hwnd, NULL, hInst, nullptr);
 }
 
 void PrepareFileScanMenu(HWND hWnd) {
@@ -149,8 +166,24 @@ void SetMainMenuWindowPos(HWND hWnd) {
 	SetWindowPos(hWnd, NULL, 300, 300, 400, 220, NULL);
 }
 
-void SetOpenFileParams() {
-	
+void SetOpenFileParams(HWND hWnd, LPCTSTR filter, wchar_t* szFile) {
+	TCHAR szFolderPath[MAX_PATH];
+	ZeroMemory(&ofn, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = hWnd;
+	ofn.lpstrFile = szFile;
+	ofn.lpstrFile[0] = '\0';
+	ofn.nMaxFile = sizeof(szFile);
+	ofn.lpstrFilter = filter;
+	ofn.nFilterIndex = 1;
+	ofn.lpstrFileTitle = NULL;
+	ofn.nMaxFileTitle = 0;
+	ofn.lpstrInitialDir = NULL;
+	if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_PROFILE, NULL, 0, szFolderPath)))
+	{
+		ofn.lpstrInitialDir = szFolderPath;
+	}
+	ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
 }
 
 BOOL SelectFolderDialog(HWND hWnd)
@@ -173,8 +206,6 @@ BOOL SelectFolderDialog(HWND hWnd)
 	}
 	return FALSE;
 }
-
-
 
 BOOL AddNotificationIcon(HWND hwnd)
 {
@@ -210,3 +241,56 @@ void ShowContextMenu(HWND hwnd, POINT pt)
 		DestroyMenu(hMenu);
 	}
 } 
+
+HANDLE ConnectToServerPipe(const std::wstring& name, uint32_t timeout)
+{
+	HANDLE hPipe = INVALID_HANDLE_VALUE;
+	while (true)
+	{
+		hPipe = CreateFileW(
+			reinterpret_cast<LPCWSTR>(name.c_str()),
+			GENERIC_READ |
+			GENERIC_WRITE,
+			0,
+			NULL,
+			OPEN_EXISTING,
+			0,
+			NULL);
+
+		if (hPipe != INVALID_HANDLE_VALUE)
+		{
+			break;
+		}
+		DWORD error = GetLastError();
+		if (error != ERROR_PIPE_BUSY)
+		{
+			return INVALID_HANDLE_VALUE;
+		}
+		if (!WaitNamedPipe(reinterpret_cast<LPCWSTR>(name.c_str()), timeout))
+		{
+			return INVALID_HANDLE_VALUE;
+		}
+	}
+	DWORD dwMode = PIPE_READMODE_MESSAGE;
+	BOOL fSuccess = SetNamedPipeHandleState(
+		hPipe,
+		&dwMode,
+		NULL,
+		NULL);
+	if (!fSuccess)
+	{
+		return INVALID_HANDLE_VALUE;
+	}
+	return hPipe;
+}
+
+void InitializeConnection(HWND hWnd) {
+	DWORD sessionId;
+	ProcessIdToSessionId(GetCurrentProcessId(), &sessionId);
+	std::wstring path = std::format(L"\\\\.\\pipe\\antivirus_{}", sessionId);
+	pipe = ConnectToServerPipe(path, 0);
+	if (pipe == INVALID_HANDLE_VALUE) {
+		MessageBox(nullptr, L"Failed to connect to the pipe.", L"Error", MB_OK | MB_ICONERROR);
+		return;
+	}
+}

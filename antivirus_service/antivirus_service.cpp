@@ -5,8 +5,6 @@
 #include "antivirus_service.h"
 
 import Channel;
-import Logger;
-import Scanner;
 
 int _tmain(int argc, TCHAR* argv[])
 {
@@ -148,6 +146,36 @@ DWORD WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEven
     return result;
 }
 
+void PrintSignaturesToFile(std::ofstream& file, const SignaturesData& data) {
+    for (size_t i = 0; i < data.size(); ++i) {
+        file << std::format("\t{}: {}", i, data.at(i).name) << std::endl;
+    }
+}
+
+template <typename Container>
+void WriteResultsToFile(std::string filename, const Container& cont) {
+    std::ofstream resultFile(filename);
+    try {
+        if (!resultFile.is_open())
+            throw ServiceException("Cannot open file to write result of scan");
+    }
+    catch (ServiceException const& e) {
+        GlobalLogger.write(e.what(), ERR);
+    }
+    // TODO: maybe fix later (one signature in file)
+    if constexpr (std::is_same_v<Container, std::vector<typename Container::value_type>>) {
+        resultFile << "Найденные сигнатуры:" << std::endl;
+        PrintSignaturesToFile(resultFile, cont);
+    }
+    else if constexpr (std::is_same_v<Container, std::map<typename Container::key_type, typename Container::mapped_type>>) {
+        resultFile << "Найденные сигнатуры по файлам:" << std::endl;
+        for (const auto& file : cont) {
+            resultFile << std::format("{}:", file.first) << std::endl;
+            PrintSignaturesToFile(resultFile, file.second);
+        }
+    }
+}
+
 void StartProcessInSession(DWORD sessionId) {
     std::thread clientThread([sessionId]() {
         GlobalLogger.write(std::format("StartUIProcessInSession sessionId = {}", sessionId), INFO);
@@ -160,11 +188,11 @@ void StartProcessInSession(DWORD sessionId) {
                 THREAD_TERMINATE, THREAD_ALL_ACCESS);
 
             STARTUPINFO si{};
-
+            PROCESS_INFORMATION pi{};
             SECURITY_ATTRIBUTES psa = GetSecurityAttributes(processSddl);
             SECURITY_ATTRIBUTES tsa = GetSecurityAttributes(threadSddl);
             GlobalLogger.write(std::format("Create pipe for sessionId = {}", sessionId), INFO);
-            if (psa.lpSecurityDescriptor != nullptr && 
+            if (psa.lpSecurityDescriptor != nullptr &&
                 tsa.lpSecurityDescriptor != nullptr) {
                 Channel ch;
                 ch.Create(hUserToken, sessionId);
@@ -173,33 +201,47 @@ void StartProcessInSession(DWORD sessionId) {
                     hUserToken, NULL, commandLine, &psa, &tsa, FALSE,
                     0, NULL, NULL, &si, &pi))
                 {
+                    processSessions.push_back(pi);
                     GlobalLogger.write(std::format("Process created for sessionId = {}", sessionId), INFO);
-                    ULONG clientProcessId;
-                    BOOL clientIdentified;
-                    // Инициализация канала и подключение к нему
-                    do {
-                        BOOL fConnected = ConnectNamedPipe(ch.GetHandlePipe(), NULL) ?
-                            TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
-                        clientIdentified = GetNamedPipeClientProcessId(ch.GetHandlePipe(), &clientProcessId);
-                        if (clientIdentified) {
-                            if (clientProcessId == pi.dwProcessId) break;
-                            else DisconnectNamedPipe(ch.GetHandlePipe());
-                        }
-                    } while (true);
+                    ch.InitializeConnection(pi);
+                    GlobalLogger.write(std::format("Connection from client with sessionId = {}", sessionId), INFO);
 
-                    uint8_t buf[512];
-                    int *signal; // TODO: maybe change to 4 
+                    Scanner sc(BINARY_BASE);
+                    uint8_t fileOrFolderName[MAX_PATH];
+                    uint8_t fileToWrite[MAX_PATH];
+                    int* signal; // TODO: maybe change to 4 
                     DWORD bytesRead = 0;
                     while (ch.Read(reinterpret_cast<uint8_t*>(signal), sizeof(int), bytesRead)) {
-                        if (*signal == EXIT) break;
-                        else if (*signal == SCAN_FILE) {
-                            // TODO: fix scan 
+                        switch (*signal) {
+                        case EXIT: 
+                            break;
+                        case SCAN_FILE:
+                        {
+                            ch.Read(fileOrFolderName, MAX_PATH, bytesRead);
+                            ch.Read(fileToWrite, MAX_PATH, bytesRead);
+                            std::string filename = reinterpret_cast<char*>(fileOrFolderName);
+                            SignaturesData res;
+                            if (sc.scanFile(filename, res))
+                            {
+                                filename = reinterpret_cast<const char*>(fileToWrite);
+                                WriteResultsToFile(filename, res);
+                                ch.Write(reinterpret_cast<uint8_t*>(SCAN_OK), sizeof(int));
+                            }
+                            else 
+                                ch.Write(reinterpret_cast<uint8_t*>(FIND_NOTHING), sizeof(int));
+                            break;
                         }
-                        else if (*signal == SCAN_FOLDER) {
-                            // TODO: fix scan   
+                        case SCAN_FOLDER:
+                        {
+                            ch.Read(fileOrFolderName, 260, bytesRead);
+                            std::string foldername = reinterpret_cast<char*>(fileOrFolderName);
+                            ScanFolderData res;
+                            sc.scanFolder(foldername, res);
+                            // ch.Write();
+                            break;
+                        }
                         }
                     }
-                    // 
                     CloseHandle(pi.hThread);
                     CloseHandle(pi.hProcess);
                 }
