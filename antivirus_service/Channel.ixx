@@ -24,23 +24,18 @@ export enum MESSAGES {
 
 export class Channel {
 public:
-	Channel();
-	~Channel() noexcept;
+	~Channel();
 	void Create(HANDLE, DWORD);
 	bool Read(uint8_t*, uint64_t, DWORD&);
 	bool Write(uint8_t*, uint64_t);
 	void InitializeConnection(PROCESS_INFORMATION); 
-	HANDLE GetHandlePipe();
+	HANDLE GetPipe() { return hPipe; }
 private:
 	HANDLE hPipe;
 	std::wstring pipeName;
 	std::wstring pipeSddl;
 };
 
-
-HANDLE Channel::GetHandlePipe() {
-	return hPipe;
-}
 
 void Channel::Create(HANDLE userToken, DWORD sessionId) {
 	pipeSddl = std::format(L"O:SYG:SYD:(A;OICI;GA;;;{})",
@@ -71,9 +66,7 @@ void Channel::Create(HANDLE userToken, DWORD sessionId) {
 	}
 }
 
-Channel::Channel() {};
-
-Channel::~Channel() noexcept {
+Channel::~Channel(){
 	if (!FlushFileBuffers(hPipe)) {
 		GlobalLogger.write("FlushFileBuffers failed with error " + GetLastError(), ERR);
 	}
@@ -119,7 +112,7 @@ void Channel::InitializeConnection(PROCESS_INFORMATION pi) {
 	do {
 		BOOL fConnected = ConnectNamedPipe(hPipe, NULL) ?
 			TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
-		clientIdentified = GetNamedPipeClientProcessId(GetHandlePipe(), &clientProcessId);
+		clientIdentified = GetNamedPipeClientProcessId(hPipe, &clientProcessId);
 		if (clientIdentified) {
 			if (clientProcessId == pi.dwProcessId) break;
 			else DisconnectNamedPipe(hPipe);

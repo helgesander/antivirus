@@ -33,9 +33,10 @@ void StartProcessInSession(DWORD sessionId);
 SECURITY_ATTRIBUTES GetSecurityAttributes(const std::wstring& sddl);
 std::wstring GetUserSid(HANDLE userToken);
 void PrintSignaturesToFile(std::ofstream&, SignaturesData const& name);
+void TerminateAllUiProcesses();
 
 #define SERVICE_NAME  _T("antivirus")
-#define GUI_PATH_L L"antivirus_gui_3.exe"
+//#define GUI_PATH_L L"antivirus_gui_3.exe"
 #define BINARY_BASE "base.bin"
 
 

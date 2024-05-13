@@ -75,7 +75,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
 {
     GlobalLogger.write("ServiceMain: Entry", INFO);
     try {
-        // TODO: fix RegisterServiceCtrlHandler(Ex)
+        // TODO: fix RegisterServiceCtrlHandler(Ex) (fixed)
         g_StatusHandle = RegisterServiceCtrlHandlerEx(SERVICE_NAME, reinterpret_cast<LPHANDLER_FUNCTION_EX>(ServiceCtrlHandler), NULL);
         if (g_StatusHandle == NULL)
             throw ServiceException("ServiceMain: RegisterServiceCtrlHandler returned error");
@@ -152,6 +152,11 @@ void PrintSignaturesToFile(std::ofstream& file, const SignaturesData& data) {
     }
 }
 
+void TerminateAllUiProcesses() { // kolhoz edition
+    for (auto p : processSessions)
+        TerminateProcess(p.hProcess, 0); 
+}
+
 template <typename Container>
 void WriteResultsToFile(std::string filename, const Container& cont) {
     std::ofstream resultFile(filename);
@@ -174,6 +179,7 @@ void WriteResultsToFile(std::string filename, const Container& cont) {
             PrintSignaturesToFile(resultFile, file.second);
         }
     }
+    resultFile.close();
 }
 
 void StartProcessInSession(DWORD sessionId) {
@@ -181,7 +187,8 @@ void StartProcessInSession(DWORD sessionId) {
         GlobalLogger.write(std::format("StartUIProcessInSession sessionId = {}", sessionId), INFO);
         HANDLE hUserToken = NULL;
         if (WTSQueryUserToken(sessionId, &hUserToken)) {
-            WCHAR commandLine[] = GUI_PATH_L;
+            WCHAR commandLine[] = L"antivirus_gui_3.exe";
+            WCHAR sdCommandLine[] = L"antivirus_gui_3.exe --secure-desktop";
             std::wstring processSddl = std::format(L"O:SYG:SYD:(D;OICI;0x{:08X};;;WD)(A;OICI;0x{:08X};;;WD)",
                 PROCESS_TERMINATE, PROCESS_ALL_ACCESS);
             std::wstring threadSddl = std::format(L"O:SYG:SYD:(D;OICI;0x{:08X};;;WD)(A;OICI;0x{:08X};;;WD)",
@@ -207,18 +214,22 @@ void StartProcessInSession(DWORD sessionId) {
                     GlobalLogger.write(std::format("Connection from client with sessionId = {}", sessionId), INFO);
 
                     Scanner sc(BINARY_BASE);
-                    uint8_t fileOrFolderName[MAX_PATH];
-                    uint8_t fileToWrite[MAX_PATH];
+                    wchar_t fileOrFolderName[MAX_PATH];
+                    wchar_t fileToWrite[MAX_PATH];
                     int* signal; // TODO: maybe change to 4 
                     DWORD bytesRead = 0;
                     while (ch.Read(reinterpret_cast<uint8_t*>(signal), sizeof(int), bytesRead)) {
+                        ImpersonateNamedPipeClient(ch.GetPipe());
                         switch (*signal) {
                         case EXIT: 
+                        {
+                            TerminateAllUiProcesses(); // pipec 
                             break;
+                        }
                         case SCAN_FILE:
                         {
-                            ch.Read(fileOrFolderName, MAX_PATH, bytesRead);
-                            ch.Read(fileToWrite, MAX_PATH, bytesRead);
+                            ch.Read(reinterpret_cast<uint8_t*>(fileOrFolderName), MAX_PATH, bytesRead);
+                            ch.Read(reinterpret_cast<uint8_t*>(fileToWrite), MAX_PATH, bytesRead);
                             std::string filename = reinterpret_cast<char*>(fileOrFolderName);
                             SignaturesData res;
                             if (sc.scanFile(filename, res))
@@ -233,14 +244,20 @@ void StartProcessInSession(DWORD sessionId) {
                         }
                         case SCAN_FOLDER:
                         {
-                            ch.Read(fileOrFolderName, 260, bytesRead);
+                            ch.Read(reinterpret_cast<uint8_t*>(fileOrFolderName), MAX_PATH, bytesRead);
+                            ch.Read(reinterpret_cast<uint8_t*>(fileToWrite), MAX_PATH, bytesRead);
                             std::string foldername = reinterpret_cast<char*>(fileOrFolderName);
                             ScanFolderData res;
-                            sc.scanFolder(foldername, res);
-                            // ch.Write();
+                            if (sc.scanFolder(foldername, res)) {
+                                foldername = reinterpret_cast<const char*>(fileToWrite);
+                                WriteResultsToFile(foldername, res);
+                                ch.Write(reinterpret_cast<uint8_t*>(SCAN_OK), sizeof(int));
+                            }
+                            else ch.Write(reinterpret_cast<uint8_t*>(FIND_NOTHING), sizeof(int));
                             break;
                         }
                         }
+                        RevertToSelf();
                     }
                     CloseHandle(pi.hThread);
                     CloseHandle(pi.hProcess);

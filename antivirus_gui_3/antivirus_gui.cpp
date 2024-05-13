@@ -1,9 +1,54 @@
 ﻿#include "antivirus_gui.h"
 #include "messages.h"
+#include <sddl.h>
 #include <string>
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInst, LPSTR args, int ncmdshow) {
 	hInst = hInstance;
+	int nArgs;
+	LPWSTR* arglist = CommandLineToArgvW(GetCommandLineW(), &nArgs);
+	if (NULL == arglist) 
+		return -1;
+	if (nArgs > 1) {
+		if (arglist[1] == std::wstring(L"--secure-desktop")) {
+			HDESK hCurrentDesktop = OpenInputDesktop(
+				0,
+				TRUE,
+				DESKTOP_SWITCHDESKTOP
+			);
+			auto sid = GetCurrentUserSid();
+			auto ssdl = std::format(L"O:{0}G:{0}D:", sid);
+			auto security = GetSecurityAttributes(ssdl);
+
+			HDESK hDesk = CreateDesktopW(
+				L"AntivirusConfirmationDesktop",
+				NULL,
+				NULL,
+				0,
+				DESKTOP_CREATEWINDOW | DESKTOP_SWITCHDESKTOP,
+				&security
+			);
+
+			SetThreadDesktop(hDesk);
+			if (!SwitchDesktop(hDesk)) {
+				return -1;
+			}
+
+			bool result = (IDYES == MessageBox(
+				NULL,
+				L"Are you shure?",
+				L"Warning",
+				MB_ICONWARNING | MB_YESNO
+			));
+
+			SwitchDesktop(hCurrentDesktop);
+			SetThreadDesktop(hCurrentDesktop);
+
+			CloseDesktop(hDesk);
+			CloseDesktop(hCurrentDesktop);
+			return result ? 1 : 0;
+		}
+	}
 	HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
 	WNDCLASS SoftwareMainClass = NewWindowClass((HBRUSH)COLOR_WINDOW, LoadCursor(NULL, IDC_ARROW), hInstance,
 		LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON1)), L"MainWndClass", WndProc);
@@ -35,12 +80,26 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
 		case SCAN_FOLDER_MENU:
 			PrepareFolderScanMenu(hWnd);
 			break;
+		case SCAN_FILE:
+			DWORD bytesRead = 0;
+			Write(pipe, reinterpret_cast<uint8_t*>(SCAN_FILE), sizeof(SCAN_FILE));
+			Write(pipe, reinterpret_cast<uint8_t*>(selectedScanFilePath), sizeof(selectedScanFilePath));
+			Write(pipe, reinterpret_cast<uint8_t*>(selectedFilePathToWrite), sizeof(selectedFilePathToWrite));
+			int signal;
+			Read(pipe, reinterpret_cast<uint8_t*>(signal), sizeof(signal), bytesRead);
+			break;
+		case SCAN_FOLDER:
+			Write(pipe, reinterpret_cast<uint8_t*>(SCAN_FILE), sizeof(SCAN_FILE));
+			Write(pipe, reinterpret_cast<uint8_t*>(g_szFolderPath), sizeof(g_szFolderPath));
+			Write(pipe, reinterpret_cast<uint8_t*>(selectedFilePathToWrite), sizeof(selectedFilePathToWrite));
+			int signal;
+			Read(pipe, reinterpret_cast<uint8_t*>(signal), sizeof(signal), bytesRead);
+			break;
 		case CANCEL:
 			GetMainMenu();
 			SetMainMenuWindowPos(hWnd);
 			break;
 		case CHOOSE_FILE:
-			wchar_t selectedScanFilePath[MAX_PATH];
 			SetOpenFileParams(hWnd, TEXT("All Files\0*.*\0Executable Files\0*.exe\0"), selectedScanFilePath);
 			if (GetOpenFileName(&ofn) == TRUE) 
 				SetWindowText(gui.hSelectedFolderOrFile, selectedScanFilePath);
@@ -51,10 +110,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
 				SetWindowText(gui.hSelectedFolderOrFile, g_szFolderPath);
 			break;
 		case CHOOSE_WRITE_FILE:
-			wchar_t selectedFilePathToWrite[MAX_PATH];
 			SetOpenFileParams(hWnd, TEXT("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"), selectedFilePathToWrite);
-			//if (GetOpenFileName(&ofn) == TRUE)
-				
+			if (GetOpenFileName(&ofn) == TRUE)
+				SetWindowText(gui.hSelectedFileToWrite, selectedFilePathToWrite);
 			break;
 		case ID_KASPERSKYV2_40001:
 			ShowWindow(hWnd, SW_SHOW);
@@ -81,6 +139,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
 		InitializeConnection(hWnd);
 		break;
 	case WM_DESTROY:
+		Write(pipe, reinterpret_cast<uint8_t*>(EXIT), sizeof(EXIT));
 		CloseHandle(pipe);
 		PostQuitMessage(0);
 		break;
@@ -105,21 +164,69 @@ WNDCLASS NewWindowClass(HBRUSH BGColor, HCURSOR Cursor, HINSTANCE hInst, HICON I
 	return NWC;
 }
 
+SECURITY_ATTRIBUTES GetSecurityAttributes(const std::wstring& sddl) {
+	SECURITY_ATTRIBUTES securityAttributes{};
+	securityAttributes.nLength = sizeof(SECURITY_ATTRIBUTES);
+	securityAttributes.bInheritHandle = TRUE;
+
+	PSECURITY_DESCRIPTOR psd = nullptr;
+
+	if (ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &psd, nullptr))
+		securityAttributes.lpSecurityDescriptor = psd;
+	return securityAttributes;
+}
+
+std::wstring GetUserSid(HANDLE userToken) {
+	std::wstring userSid;
+	DWORD err = 0;
+	LPVOID pvInfo = NULL;
+	DWORD cbSize = 0;
+	if (!GetTokenInformation(userToken, TokenUser, NULL, 0, &cbSize)) {
+		err = GetLastError();
+		if (ERROR_INSUFFICIENT_BUFFER == err) {
+			err = 0;
+			pvInfo = LocalAlloc(LPTR, cbSize);
+			if (!pvInfo)
+				err = ERROR_OUTOFMEMORY;
+			else if (!GetTokenInformation(userToken, TokenUser, pvInfo, cbSize, &cbSize))
+				err = GetLastError();
+			else {
+				err = 0;
+				const TOKEN_USER* pUser = (const TOKEN_USER*)pvInfo;
+				LPWSTR userSidBuf;
+				ConvertSidToStringSidW(pUser->User.Sid, &userSidBuf);
+				userSid.assign(userSidBuf);
+				LocalFree(userSidBuf);
+			}
+		}
+	}
+	return userSid;
+}
+
+std::wstring GetCurrentUserSid() {
+	HANDLE token;
+	if (!OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, FALSE, &token)) {
+		if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+			return L"";
+	}
+	return GetUserSid(token);
+}
+
 void InitWindow(HWND hwnd) {
 	AddNotificationIcon(hwnd);
 	gui.hScanFileMenu = CreateWindowW(L"BUTTON", L"Сканировать файл", WS_VISIBLE | WS_CHILD | WS_TABSTOP, 45, 50, 140, 40, hwnd, (HMENU)SCAN_FILE_MENU, hInst, nullptr);
 	gui.hScanFolderMenu = CreateWindowW(L"BUTTON", L"Сканировать папку", WS_VISIBLE | WS_CHILD | WS_TABSTOP, 205, 50, 140, 40, hwnd, (HMENU)SCAN_FOLDER_MENU, hInst, nullptr);
-	gui.hScanFileBtn = CreateWindowW(L"BUTTON", L"Сканировать", WS_CHILD | WS_TABSTOP | ES_CENTER, 50, 170, 120, 40, hwnd, (HMENU)SCAN_FILE, hInst, nullptr);
-	gui.hScanFolderBtn = CreateWindowW(L"BUTTON", L"Сканировать", WS_CHILD | WS_TABSTOP | ES_CENTER, 50, 170, 120, 40, hwnd, (HMENU)SCAN_FOLDER, hInst, nullptr);
-	gui.hScanFileLabel = CreateWindowW(L"STATIC", L"Выберите файл для сканирования: ", WS_CHILD | ES_CENTER, 45, 50, 140, 40, hwnd, NULL, hInst, nullptr);
-	gui.hScanFolderLabel = CreateWindowW(L"STATIC", L"Выберите папку для сканирования: ", WS_CHILD | ES_CENTER, 45, 50, 140, 40, hwnd, NULL, hInst, nullptr);
-	gui.hChooseFileToWriteLabel = CreateWindowW(L"STATIC", L"Выберите файл для сохранения результатов", WS_CHILD | ES_CENTER, 45, 110, 140, 40, hwnd, NULL, hInst, nullptr);
-	gui.hChooseFileToWriteBtn = CreateWindowW(L"BUTTON", L"...", WS_CHILD | ES_CENTER, 150, 110, 30, 30, hwnd, (HMENU)CHOOSE_FILE, hInst, nullptr);
+	gui.hScanFileBtn = CreateWindowW(L"BUTTON", L"Сканировать", WS_CHILD | WS_TABSTOP | ES_CENTER, 70, 170, 120, 40, hwnd, (HMENU)SCAN_FILE, hInst, nullptr);
+	gui.hScanFolderBtn = CreateWindowW(L"BUTTON", L"Сканировать", WS_CHILD | WS_TABSTOP | ES_CENTER, 70, 170, 120, 40, hwnd, (HMENU)SCAN_FOLDER, hInst, nullptr);
+	gui.hScanFileLabel = CreateWindowW(L"STATIC", L"Выберите файл для сканирования: ", WS_CHILD | ES_CENTER, 45, 50, 200, 40, hwnd, NULL, hInst, nullptr);
+	gui.hScanFolderLabel = CreateWindowW(L"STATIC", L"Выберите папку для сканирования: ", WS_CHILD | ES_CENTER, 45, 50, 200, 40, hwnd, NULL, hInst, nullptr);
+	gui.hChooseFileToWriteLabel = CreateWindowW(L"STATIC", L"Выберите файл для сохранения результатов", WS_CHILD | ES_CENTER, 45, 110, 200, 40, hwnd, NULL, hInst, nullptr);
+	gui.hChooseFileToWriteBtn = CreateWindowW(L"BUTTON", L"...", WS_CHILD | ES_CENTER, 250, 110, 30, 30, hwnd, (HMENU)CHOOSE_FILE, hInst, nullptr);
 	gui.hCancelButton = CreateWindowW(L"BUTTON", L"Назад", WS_CHILD, 50, 220, 50, 30, hwnd, (HMENU)CANCEL, hInst, nullptr);
-	gui.hChooseFileToScan = CreateWindowW(L"BUTTON", L"...", WS_CHILD, 200, 50, 30, 30, hwnd, (HMENU)CHOOSE_FILE, hInst, nullptr);
-	gui.hChooseFolderToScan = CreateWindowW(L"BUTTON", L"...", WS_CHILD, 200, 50, 30, 30, hwnd, (HMENU)CHOOSE_FOLDER, hInst, nullptr);
+	gui.hChooseFileToScan = CreateWindowW(L"BUTTON", L"...", WS_CHILD, 250, 50, 30, 30, hwnd, (HMENU)CHOOSE_FILE, hInst, nullptr);
+	gui.hChooseFolderToScan = CreateWindowW(L"BUTTON", L"...", WS_CHILD, 250, 50, 30, 30, hwnd, (HMENU)CHOOSE_FOLDER, hInst, nullptr);
 	gui.hSelectedFolderOrFile = CreateWindow(L"STATIC", L"", WS_CHILD, 250, 50, 100, 40, hwnd, NULL, hInst, nullptr);
-	gui.hSelectedFileToWrite = CreateWindow(L"STATIC", L"", WS_CHILD, 250, 50, 100, 40, hwnd, NULL, hInst, nullptr);
+	gui.hSelectedFileToWrite = CreateWindow(L"STATIC", L"", WS_CHILD, 300, 50, 100, 40, hwnd, NULL, hInst, nullptr);
 }
 
 void PrepareFileScanMenu(HWND hWnd) {
@@ -130,9 +237,10 @@ void PrepareFileScanMenu(HWND hWnd) {
 	ShowWindow(gui.hCancelButton, SW_SHOW);
 	ShowWindow(gui.hChooseFileToWriteBtn, SW_SHOW);
 	ShowWindow(gui.hChooseFileToScan, SW_SHOW);
+	ShowWindow(gui.hChooseFileToWriteLabel, SW_SHOW);
 	ShowWindow(gui.hScanFileMenu, SW_HIDE);
 	ShowWindow(gui.hScanFolderMenu, SW_HIDE);
-	SetWindowPos(hWnd, NULL, 300, 300, 400, 400, NULL);
+	SetWindowPos(hWnd, NULL, 300, 300, 350, 350, NULL);
 }
 
 void PrepareFolderScanMenu(HWND hWnd) {
@@ -143,9 +251,10 @@ void PrepareFolderScanMenu(HWND hWnd) {
 	ShowWindow(gui.hCancelButton, SW_SHOW);
 	ShowWindow(gui.hChooseFileToWriteBtn, SW_SHOW);
 	ShowWindow(gui.hChooseFolderToScan, SW_SHOW);
+	ShowWindow(gui.hChooseFileToWriteLabel, SW_SHOW);
 	ShowWindow(gui.hScanFileMenu, SW_HIDE);
 	ShowWindow(gui.hScanFolderMenu, SW_HIDE);
-	SetWindowPos(hWnd, NULL, 300, 300, 400, 400, NULL);
+	SetWindowPos(hWnd, NULL, 300, 300, 350, 350, NULL);
 }
 
 void GetMainMenu() {
@@ -285,12 +394,47 @@ HANDLE ConnectToServerPipe(const std::wstring& name, uint32_t timeout)
 }
 
 void InitializeConnection(HWND hWnd) {
-	DWORD sessionId;
-	ProcessIdToSessionId(GetCurrentProcessId(), &sessionId);
-	std::wstring path = std::format(L"\\\\.\\pipe\\antivirus_{}", sessionId);
-	pipe = ConnectToServerPipe(path, 0);
-	if (pipe == INVALID_HANDLE_VALUE) {
-		MessageBox(nullptr, L"Failed to connect to the pipe.", L"Error", MB_OK | MB_ICONERROR);
-		return;
+	std::thread clientThread([hWnd]() {
+		DWORD sessionId;
+		ProcessIdToSessionId(GetCurrentProcessId(), &sessionId);
+		std::wstring path = std::format(L"\\\\.\\pipe\\antivirus_{}", sessionId);
+		pipe = ConnectToServerPipe(path, 0);
+		if (pipe == INVALID_HANDLE_VALUE) {
+			MessageBox(nullptr, L"Failed to connect to the pipe.", L"Error", MB_OK | MB_ICONERROR);
+			return;
+		}
+	});
+	clientThread.detach();
+}
+
+bool Read(HANDLE handle, uint8_t* data, uint64_t length, DWORD& bytesRead)
+{
+	bytesRead = 0;
+	BOOL fSuccess = ReadFile(
+		handle,
+		data,
+		length,
+		&bytesRead,
+		NULL);
+	if (!fSuccess || bytesRead == 0)
+	{
+		return false;
 	}
+	return true;
+}
+
+bool Write(HANDLE handle, uint8_t* data, uint64_t length)
+{
+	DWORD cbWritten = 0;
+	BOOL fSuccess = WriteFile(
+		handle,
+		data,
+		length,
+		&cbWritten,
+		NULL);
+	if (!fSuccess || length != cbWritten)
+	{
+		return false;
+	}
+	return true;
 }

@@ -33,6 +33,8 @@ GUI gui;
 OPENFILENAMEW ofn;
 TCHAR g_szFolderPath[MAX_PATH];
 HANDLE pipe;
+wchar_t selectedScanFilePath[MAX_PATH];
+wchar_t selectedFilePathToWrite[MAX_PATH];
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 WNDCLASS NewWindowClass(HBRUSH, HCURSOR, HINSTANCE, HICON, LPCWSTR, WNDPROC);
@@ -46,3 +48,8 @@ BOOL AddNotificationIcon(HWND);
 void SetMainMenuWindowPos(HWND hWnd);
 void ShowContextMenu(HWND, POINT);
 void InitializeConnection(HWND);
+bool Read(HANDLE, uint8_t*, uint64_t, DWORD&);
+bool Write(HANDLE, uint8_t*, uint64_t);
+std::wstring GetUserSid(HANDLE);
+SECURITY_ATTRIBUTES GetSecurityAttributes(const std::wstring&);
+std::wstring GetCurrentUserSid();
