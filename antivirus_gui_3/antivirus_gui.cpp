@@ -2,6 +2,7 @@
 #include "messages.h"
 #include <sddl.h>
 #include <string>
+#include <chrono>
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInst, LPSTR args, int ncmdshow) {
 	hInst = hInstance;
@@ -81,20 +82,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
 			PrepareFolderScanMenu(hWnd);
 			break;
 		case SCAN_FILE:
+		{
 			DWORD bytesRead = 0;
 			Write(pipe, reinterpret_cast<uint8_t*>(SCAN_FILE), sizeof(SCAN_FILE));
 			Write(pipe, reinterpret_cast<uint8_t*>(selectedScanFilePath), sizeof(selectedScanFilePath));
 			Write(pipe, reinterpret_cast<uint8_t*>(selectedFilePathToWrite), sizeof(selectedFilePathToWrite));
-			int signal;
+			int signal = 0;
 			Read(pipe, reinterpret_cast<uint8_t*>(signal), sizeof(signal), bytesRead);
 			break;
+		}
 		case SCAN_FOLDER:
+		{
+			DWORD bytesRead = 0;
 			Write(pipe, reinterpret_cast<uint8_t*>(SCAN_FILE), sizeof(SCAN_FILE));
 			Write(pipe, reinterpret_cast<uint8_t*>(g_szFolderPath), sizeof(g_szFolderPath));
 			Write(pipe, reinterpret_cast<uint8_t*>(selectedFilePathToWrite), sizeof(selectedFilePathToWrite));
-			int signal;
+			int signal = NULL;
 			Read(pipe, reinterpret_cast<uint8_t*>(signal), sizeof(signal), bytesRead);
 			break;
+		}
 		case CANCEL:
 			GetMainMenu();
 			SetMainMenuWindowPos(hWnd);
@@ -398,6 +404,7 @@ void InitializeConnection(HWND hWnd) {
 		DWORD sessionId;
 		ProcessIdToSessionId(GetCurrentProcessId(), &sessionId);
 		std::wstring path = std::format(L"\\\\.\\pipe\\antivirus_{}", sessionId);
+		std::this_thread::sleep_for(std::chrono::seconds(1));
 		pipe = ConnectToServerPipe(path, 0);
 		if (pipe == INVALID_HANDLE_VALUE) {
 			MessageBox(nullptr, L"Failed to connect to the pipe.", L"Error", MB_OK | MB_ICONERROR);

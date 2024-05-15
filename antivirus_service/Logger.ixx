@@ -7,7 +7,7 @@ module;
 #include <Windows.h>
 #include <winbase.h>
 
-#define LOGFILE "antivirus.log"
+#define LOGFILE "C:\\Users\\helgesander\\antivirus.log"
 
 export module Logger;
 
@@ -67,5 +67,3 @@ std::string Logger::GetEnumName(LOGTYPE logtype)
 {
     return logtypeNames[logtype];
 }
-
-export Logger GlobalLogger(LOGFILE);

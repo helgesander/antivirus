@@ -18,6 +18,7 @@
 #include <format>
 #include <vector>
 #include <type_traits>
+//#include <synchapi.h>
 
 import Scanner;
 import Logger;
@@ -26,6 +27,7 @@ static SERVICE_STATUS        g_ServiceStatus	= { 0 };
 static SERVICE_STATUS_HANDLE g_StatusHandle		= NULL;
 static HANDLE                g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 static std::vector<PROCESS_INFORMATION> processSessions;
+static Logger GlobalLogger("C:\\Users\\helgesander\\antivirus.log");
 
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv);
 DWORD WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEventData, LPVOID lpContent);

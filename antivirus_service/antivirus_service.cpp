@@ -56,7 +56,6 @@ std::wstring GetUserSid(HANDLE userToken) {
     return userSid;
 }
 
-
 SECURITY_ATTRIBUTES GetSecurityAttributes(const std::wstring& sddl) {
     SECURITY_ATTRIBUTES securityAttributes{};
     securityAttributes.nLength = sizeof(SECURITY_ATTRIBUTES);
@@ -114,7 +113,6 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
         }
     }
 }
-
 
 DWORD WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEventData, LPVOID lpContent)
 {
@@ -219,6 +217,7 @@ void StartProcessInSession(DWORD sessionId) {
                     int* signal; // TODO: maybe change to 4 
                     DWORD bytesRead = 0;
                     while (ch.Read(reinterpret_cast<uint8_t*>(signal), sizeof(int), bytesRead)) {
+                        GlobalLogger.write(std::format("Read message from client with sessionId = {}: {}", sessionId, *signal), INFO);
                         ImpersonateNamedPipeClient(ch.GetPipe());
                         switch (*signal) {
                         case EXIT: 
@@ -258,6 +257,31 @@ void StartProcessInSession(DWORD sessionId) {
                         }
                         }
                         RevertToSelf();
+                        DWORD exitCode;
+                        char buf[256];
+                        if (bytesRead >= 1 && buf[0] == 'Q') // TODO: change
+                        {
+                            PROCESS_INFORMATION sdpi{};
+                            STARTUPINFO sdsi{};
+                            if (CreateProcessAsUserW(
+                                hUserToken,
+                                NULL,
+                                sdCommandLine,
+                                &psa, &tsa,
+                                FALSE, 0,
+                                NULL, NULL,
+                                &sdsi, &sdpi
+                            )) {
+                                if (WAIT_OBJECT_0 == WaitForSingleObject(sdpi.hProcess, INFINITE))
+                                {
+                                    if (GetExitCodeProcess(sdpi.hProcess, &exitCode) && exitCode == 1)
+                                    {
+                                        TerminateProcess(GetCurrentProcess(), 0);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
                     }
                     CloseHandle(pi.hThread);
                     CloseHandle(pi.hProcess);
