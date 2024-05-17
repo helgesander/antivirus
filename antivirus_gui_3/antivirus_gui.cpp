@@ -124,6 +124,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
 			ShowWindow(hWnd, SW_SHOW);
 			break;
 		case ID_KASPERSKYV2_40002:
+			Write(pipe, reinterpret_cast<uint8_t*>(EXIT), sizeof(EXIT));
 			PostQuitMessage(0);
 			break;
 		}

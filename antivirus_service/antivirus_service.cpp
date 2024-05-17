@@ -4,6 +4,7 @@
 
 #include "antivirus_service.h"
 
+#define WIN32_LEAN_AND_MEAN
 import Channel;
 
 int _tmain(int argc, TCHAR* argv[])
@@ -66,7 +67,7 @@ SECURITY_ATTRIBUTES GetSecurityAttributes(const std::wstring& sddl) {
     if (ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &psd, nullptr))
         securityAttributes.lpSecurityDescriptor = psd;
     else
-        GlobalLogger.write("SDDL parse error", ERR);
+        GlobalLogger.write(std::format("SDDL parse error: {}", converter.to_bytes(sddl)), ERR);
     return securityAttributes;
 }
 
@@ -98,7 +99,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
         GlobalLogger.write(e.what(), ERR);
     }
 
-    SECURITY_ATTRIBUTES jsa = GetSecurityAttributes(L"O:SYG:SYG");
+    SECURITY_ATTRIBUTES jsa = GetSecurityAttributes(L"O:SYG:SYD:");
 
     PWTS_SESSION_INFO wtsSessions = NULL;
     DWORD sessionCount = 0;
@@ -144,9 +145,9 @@ DWORD WINAPI ServiceCtrlHandler(DWORD CtrlCode, DWORD dwEventType, LPVOID lpEven
     return result;
 }
 
-void PrintSignaturesToFile(std::ofstream& file, const SignaturesData& data) {
+void PrintSignaturesToFile(std::ofstream& file, const ScanFileResult& data) {
     for (size_t i = 0; i < data.size(); ++i) {
-        file << std::format("\t{}: {}", i, data.at(i).name) << std::endl;
+        file << std::format("\t{}: {}", i, data.at(i)) << std::endl;
     }
 }
 
@@ -182,6 +183,7 @@ void WriteResultsToFile(std::string filename, const Container& cont) {
 
 void StartProcessInSession(DWORD sessionId) {
     std::thread clientThread([sessionId]() {
+
         GlobalLogger.write(std::format("StartUIProcessInSession sessionId = {}", sessionId), INFO);
         HANDLE hUserToken = NULL;
         if (WTSQueryUserToken(sessionId, &hUserToken)) {
@@ -216,78 +218,73 @@ void StartProcessInSession(DWORD sessionId) {
                     wchar_t fileToWrite[MAX_PATH];
                     int* signal; // TODO: maybe change to 4 
                     DWORD bytesRead = 0;
-                    while (ch.Read(reinterpret_cast<uint8_t*>(signal), sizeof(int), bytesRead)) {
-                        GlobalLogger.write(std::format("Read message from client with sessionId = {}: {}", sessionId, *signal), INFO);
-                        ImpersonateNamedPipeClient(ch.GetPipe());
-                        switch (*signal) {
-                        case EXIT: 
-                        {
-                            TerminateAllUiProcesses(); // pipec 
-                            break;
-                        }
-                        case SCAN_FILE:
-                        {
-                            ch.Read(reinterpret_cast<uint8_t*>(fileOrFolderName), MAX_PATH, bytesRead);
-                            ch.Read(reinterpret_cast<uint8_t*>(fileToWrite), MAX_PATH, bytesRead);
-                            std::string filename = reinterpret_cast<char*>(fileOrFolderName);
-                            SignaturesData res;
-                            if (sc.scanFile(filename, res))
+                    while (true) 
+                    {
+                        while (ch.Read(reinterpret_cast<uint8_t*>(signal), sizeof(int), bytesRead)) {
+                            GlobalLogger.write(std::format("Read message from client with sessionId = {}: {}", sessionId, *signal), INFO);
+                            ImpersonateNamedPipeClient(ch.GetPipe());
+                            switch (*signal) {
+                            case EXIT:
                             {
-                                filename = reinterpret_cast<const char*>(fileToWrite);
-                                WriteResultsToFile(filename, res);
-                                ch.Write(reinterpret_cast<uint8_t*>(SCAN_OK), sizeof(int));
-                            }
-                            else 
-                                ch.Write(reinterpret_cast<uint8_t*>(FIND_NOTHING), sizeof(int));
-                            break;
-                        }
-                        case SCAN_FOLDER:
-                        {
-                            ch.Read(reinterpret_cast<uint8_t*>(fileOrFolderName), MAX_PATH, bytesRead);
-                            ch.Read(reinterpret_cast<uint8_t*>(fileToWrite), MAX_PATH, bytesRead);
-                            std::string foldername = reinterpret_cast<char*>(fileOrFolderName);
-                            ScanFolderData res;
-                            if (sc.scanFolder(foldername, res)) {
-                                foldername = reinterpret_cast<const char*>(fileToWrite);
-                                WriteResultsToFile(foldername, res);
-                                ch.Write(reinterpret_cast<uint8_t*>(SCAN_OK), sizeof(int));
-                            }
-                            else ch.Write(reinterpret_cast<uint8_t*>(FIND_NOTHING), sizeof(int));
-                            break;
-                        }
-                        }
-                        RevertToSelf();
-                        DWORD exitCode;
-                        char buf[256];
-                        if (bytesRead >= 1 && buf[0] == 'Q') // TODO: change
-                        {
-                            PROCESS_INFORMATION sdpi{};
-                            STARTUPINFO sdsi{};
-                            if (CreateProcessAsUserW(
-                                hUserToken,
-                                NULL,
-                                sdCommandLine,
-                                &psa, &tsa,
-                                FALSE, 0,
-                                NULL, NULL,
-                                &sdsi, &sdpi
-                            )) {
-                                if (WAIT_OBJECT_0 == WaitForSingleObject(sdpi.hProcess, INFINITE))
-                                {
-                                    if (GetExitCodeProcess(sdpi.hProcess, &exitCode) && exitCode == 1)
+                                PROCESS_INFORMATION sdpi{};
+                                STARTUPINFO sdsi{};
+                                if (CreateProcessAsUserW(
+                                    hUserToken,
+                                    NULL,
+                                    sdCommandLine,
+                                    &psa, &tsa,
+                                    FALSE, 0,
+                                    NULL, NULL,
+                                    &sdsi, &sdpi
+                                )) {
+                                    if (WAIT_OBJECT_0 == WaitForSingleObject(sdpi.hProcess, INFINITE))
                                     {
-                                        TerminateProcess(GetCurrentProcess(), 0);
+                                        TerminateAllUiProcesses();
                                         return;
                                     }
                                 }
                             }
+                            case SCAN_FILE:
+                            {
+                                ch.Read(reinterpret_cast<uint8_t*>(fileOrFolderName), MAX_PATH, bytesRead);
+                                std::string tempname = converter.to_bytes(fileOrFolderName);
+                                GlobalLogger.write(std::format("Read message from client with sessionId = {}: {}", sessionId, tempname), INFO);
+                                ch.Read(reinterpret_cast<uint8_t*>(fileToWrite), MAX_PATH, bytesRead);
+                                std::string filename = reinterpret_cast<char*>(fileOrFolderName);
+                                ScanFileResult res;
+                                if (sc.scanFile(filename, res))
+                                {
+                                    filename = reinterpret_cast<const char*>(fileToWrite);
+                                    WriteResultsToFile(filename, res);
+                                    ch.Write(reinterpret_cast<uint8_t*>(SCAN_OK), sizeof(int));
+                                }
+                                else
+                                    ch.Write(reinterpret_cast<uint8_t*>(FIND_NOTHING), sizeof(int));
+                                break;
+                            }
+                            case SCAN_FOLDER:
+                            {
+                                ch.Read(reinterpret_cast<uint8_t*>(fileOrFolderName), MAX_PATH, bytesRead);
+                                ch.Read(reinterpret_cast<uint8_t*>(fileToWrite), MAX_PATH, bytesRead);
+                                std::string foldername = reinterpret_cast<char*>(fileOrFolderName);
+                                ScanFolderResult res;
+                                if (sc.scanFolder(foldername, res)) {
+                                    foldername = reinterpret_cast<const char*>(fileToWrite);
+                                    WriteResultsToFile(foldername, res);
+                                    ch.Write(reinterpret_cast<uint8_t*>(SCAN_OK), sizeof(int));
+                                }
+                                else ch.Write(reinterpret_cast<uint8_t*>(FIND_NOTHING), sizeof(int));
+                                break;
+                            }
+                            }
+                            RevertToSelf();
                         }
                     }
                     CloseHandle(pi.hThread);
                     CloseHandle(pi.hProcess);
                 }
                 else GlobalLogger.write(std::format("Can\'t parse security descriptor for sessionId = {}: {}", sessionId, GetLastError()), ERR);
-
+                GlobalLogger.write("meow", INFO);
                 auto sd = tsa.lpSecurityDescriptor;
                 tsa.lpSecurityDescriptor = nullptr;
                 LocalFree(sd);

@@ -87,8 +87,9 @@ bool Channel::Read(uint8_t* data, uint64_t length, DWORD& bytesRead) {
 		&bytesRead,
 		NULL
 	);
-	if (!fSuccess || bytesRead == 0)
+	if (!fSuccess || bytesRead == 0) {
 		return false;
+	}
 	return true;
 }
 
@@ -101,8 +102,9 @@ bool Channel::Write(uint8_t* data, uint64_t length) {
 		&cbWritten,
 		NULL
 	);
-	if (!fSuccess || length != cbWritten)
+	if (!fSuccess || length != cbWritten) {
 		return false;
+	}
 	return true;
 }
 

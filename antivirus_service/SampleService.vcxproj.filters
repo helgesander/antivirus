@@ -21,6 +21,7 @@
     <ClCompile Include="Logger.ixx" />
     <ClCompile Include="Channel.ixx" />
     <ClCompile Include="Scanner.ixx" />
+    <ClCompile Include="FileStream.ixx" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="antivirus_service.h">

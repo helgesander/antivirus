@@ -69,7 +69,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
       <TargetMachine>MachineX86</TargetMachine>
-      <AdditionalDependencies>$(CoreLibraryDependencies);Wtsapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(CoreLibraryDependencies);Wtsapi32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -95,6 +95,7 @@
   <ItemGroup>
     <ClCompile Include="antivirus_service.cpp" />
     <ClCompile Include="Channel.ixx" />
+    <ClCompile Include="FileStream.ixx" />
     <ClCompile Include="Logger.ixx" />
     <ClCompile Include="Scanner.ixx" />
   </ItemGroup>
